@@ -57,12 +57,13 @@ class EmailAutomation:
             for _, row in df.iterrows():
                 email = str(row['Email'])
                 name = str(row['Name'])
+                role = str(row['Role'])
                 
                 if self.validator.is_valid_email(email):
                     company = self.company_matcher.identify_company(email)
                     if company != 'unknown':
                         name = self.validator.normalize_name(name)
-                        company_contacts[company].append((name, email))
+                        company_contacts[company].append((name, email,role))
             
             logger.info(f"Processed {sum(len(contacts) for contacts in company_contacts.values())} valid contacts")
             return company_contacts
@@ -130,7 +131,7 @@ class EmailAutomation:
             logger.error(f"Error in email scheduling: {e}")
             raise
             
-    def _schedule_batch(self, batch: Dict[str, List[Tuple[str, str]]], 
+    def _schedule_batch(self, batch: Dict[str, List[Tuple[str, str, str]]], 
                        days_delay: int, is_reminder: bool, batch_num: int):
         """Schedule a batch of emails"""
         send_time = datetime.now() + timedelta(days=days_delay)
@@ -140,7 +141,7 @@ class EmailAutomation:
         logger.info(f"Scheduled for: {send_time.strftime('%Y-%m-%d %H:%M:%S')}")
         
         for company, contacts in batch.items():
-            for name, email in contacts:
+            for name, email, role in contacts:
                 try:
                     self._send_email(
                         recipient_email=email,
