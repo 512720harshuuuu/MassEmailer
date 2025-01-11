@@ -27,10 +27,14 @@ class TestEmailAutomation(unittest.TestCase):
     def create_test_excel(cls):
         """Create test Excel file"""
         test_data = {
-            'Name': [
-                'John Doe', 'Jane Smith', 'Bob Wilson',
-                'Alice Brown', 'Charlie Davis', 'Eve White',
-                'Invalid Name'
+            'Role': [
+                'Data Science Manager',
+                'ML Lead',
+                'AI Manager',
+                'Data Science Director',
+                'Research Lead',
+                'AI Director',
+                'Invalid Role'
             ],
             'Email': [
                 'john.doe@amazon.com',
@@ -40,6 +44,11 @@ class TestEmailAutomation(unittest.TestCase):
                 'charlie@unknown.com',
                 'linkedin.com/in/eve',
                 ''
+            ],
+            'Name': [
+                'John Doe', 'Jane Smith', 'Bob Wilson',
+                'Alice Brown', 'Charlie Davis', 'Eve White',
+                'Invalid Name'
             ]
         }
         

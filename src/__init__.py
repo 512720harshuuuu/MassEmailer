@@ -10,3 +10,4 @@ from .email_automation import EmailAutomation
 from .templates import EmailTemplateManager
 
 __all__ = ['EmailAutomation', 'EmailTemplateManager']
+

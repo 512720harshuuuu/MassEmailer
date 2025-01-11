@@ -77,7 +77,7 @@ class DataValidator:
         Returns:
             bool: True if structure is valid
         """
-        required_columns = {'Name', 'Email'}
+        required_columns = {'Role','Name', 'Email'}
         
         # Check for required columns
         if not all(col in df.columns for col in required_columns):
