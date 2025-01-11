@@ -1,0 +1,8 @@
+pandas==2.1.0
+openpyxl==3.1.2
+python-dotenv==1.0.0
+logging==0.5.1.2
+pytest==7.4.0
+black==23.7.0  # For code formatting
+flake8==6.1.0  # For linting
+pytest-cov==4.1.0  # For test coverage
