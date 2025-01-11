@@ -14,7 +14,7 @@ from collections import defaultdict
 from .utils.validators import EmailValidator, DataValidator
 from .utils.company_matcher import CompanyMatcher
 from .templates import EmailTemplateManager
-from config.settings import EMAIL_SETTINGS, EMAIL_PROVIDERS, RETRY_SETTINGS
+from config.settings import EMAIL_SETTINGS, EMAIL_PROVIDERS
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,9 @@ class EmailAutomation:
         self.failed_emails = defaultdict(list)
         self.daily_count = 0
         self.last_send_time = None
-        
+        self.scheduled_emails = []  # Add this line
+
+
     def process_excel_file(self) -> Dict[str, List[Tuple[str, str]]]:
         """Process Excel file and organize contacts by company"""
         logger.info(f"Processing Excel file: {self.excel_path}")
@@ -132,7 +134,7 @@ class EmailAutomation:
             raise
             
     def _schedule_batch(self, batch: Dict[str, List[Tuple[str, str, str]]], 
-                       days_delay: int, is_reminder: bool, batch_num: int):
+                    days_delay: int, is_reminder: bool, batch_num: int):
         """Schedule a batch of emails"""
         send_time = datetime.now() + timedelta(days=days_delay)
         action = "Reminder" if is_reminder else "Initial"
@@ -143,23 +145,39 @@ class EmailAutomation:
         for company, contacts in batch.items():
             for name, email, role in contacts:
                 try:
-                    self._send_email(
-                        recipient_email=email,
-                        recipient_name=name,
-                        company=company,
-                        is_reminder=is_reminder,
-                        batch_num=batch_num
-                    )
-                    time.sleep(EMAIL_SETTINGS['cooling_period'] * 3600)  # Convert hours to seconds
+                    # Instead of sending immediately, store the scheduled email
+                    scheduled_email = {
+                        'recipient_email': email,
+                        'recipient_name': name,
+                        'company': company,
+                        'is_reminder': is_reminder,
+                        'batch_num': batch_num,
+                        'send_time': send_time
+                    }
+                    
+                    # Store this in a schedule queue
+                    logger.info(f"Scheduled email to {email} for {send_time}")
+                    self.scheduled_emails.append(scheduled_email)
                     
                 except Exception as e:
-                    logger.error(f"Failed to send email to {email}: {e}")
+                    logger.error(f"Failed to schedule email to {email}: {e}")
                     self.failed_emails[email].append({
                         'time': datetime.now(),
                         'error': str(e),
                         'batch': batch_num
-                    })
-                    
+                    })      
+    def get_schedule_summary(self):
+        """Get summary of scheduled emails"""
+        schedule_summary = defaultdict(list)
+        for email in self.scheduled_emails:
+            date = email['send_time'].strftime('%Y-%m-%d')
+            schedule_summary[date].append({
+                'recipient': email['recipient_email'],
+                'type': 'reminder' if email['is_reminder'] else 'initial',
+                'batch': email['batch_num'],
+                'time': email['send_time'].strftime('%H:%M:%S')
+            })
+        return schedule_summary              
     def _send_email(self, recipient_email: str, recipient_name: str, 
                     company: str, is_reminder: bool, batch_num: int):
         """Send individual email"""
@@ -187,14 +205,79 @@ class EmailAutomation:
             )
             msg.attach(MIMEText(body, 'plain'))
             
-            # In real implementation, connect to SMTP server and send
-            # This is a simulation for testing
-            logger.info(f"[Batch {batch_num}] Would send {template_type} email to: {recipient_name} ({recipient_email})")
-            
-            self.sent_emails.add(recipient_email)
-            self.daily_count += 1
-            self.last_send_time = datetime.now()
-            
+            # Enhanced SMTP connection handling
+            server = None
+            try:
+                logger.info(f"Initializing SMTP connection for {recipient_email}")
+                server = smtplib.SMTP(EMAIL_PROVIDERS['gmail']['smtp_server'], 
+                                    EMAIL_PROVIDERS['gmail']['smtp_port'])
+                
+                logger.info("Starting TLS")
+                server.starttls()
+                
+                logger.info("Attempting login")
+                server.login(self.sender_email, self.sender_password)
+                
+                logger.info("Sending email")
+                server.send_message(msg)
+                
+                logger.info(f"[Batch {batch_num}] Successfully sent {template_type} email to: {recipient_name} ({recipient_email})")
+                
+                self.sent_emails.add(recipient_email)
+                self.daily_count += 1
+                self.last_send_time = datetime.now()
+                
+            except smtplib.SMTPAuthenticationError as e:
+                logger.error(f"Authentication failed: {str(e)}")
+                raise
+            except smtplib.SMTPException as e:
+                logger.error(f"SMTP error occurred: {str(e)}")
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error: {str(e)}")
+                raise
+            finally:
+                if server:
+                    logger.info("Closing SMTP connection")
+                    server.quit()
+                    
         except Exception as e:
             logger.error(f"Error sending email to {recipient_email}: {e}")
             raise
+    def test_smtp_connection(self):
+        """Test SMTP connection before running automation"""
+        try:
+            logger.info("Testing SMTP connection...")
+            logger.info(f"Connecting to {EMAIL_PROVIDERS['gmail']['smtp_server']}:{EMAIL_PROVIDERS['gmail']['smtp_port']}")
+            time.sleep(1)  # Add small delay
+
+            server = smtplib.SMTP(EMAIL_PROVIDERS['gmail']['smtp_server'], 
+                                EMAIL_PROVIDERS['gmail']['smtp_port'])
+            logger.info("Initial connection successful")
+            
+            logger.info("Starting TLS...")
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            logger.info("TLS started successfully")
+            
+            logger.info("Attempting login...")
+            server.login(self.sender_email, self.sender_password)
+            logger.info("Login successful")
+            
+            server.quit()
+            logger.info("SMTP connection test successful")
+            return True
+            
+        except smtplib.SMTPAuthenticationError as e:
+            logger.error(f"Authentication failed: {str(e)}")
+            logger.error("Please check your email and app password")
+            return False
+        except smtplib.SMTPException as e:
+            logger.error(f"SMTP error occurred: {str(e)}")
+            logger.error("This might be due to connection issues or server configuration")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error during SMTP test: {str(e)}")
+            logger.error(f"Using email: {self.sender_email}")
+            return False
