@@ -10,7 +10,16 @@ from email.mime.multipart import MIMEMultipart
 import time
 from typing import Dict, List, Tuple
 from collections import defaultdict
-
+import pandas as pd
+import logging
+from datetime import datetime, timedelta
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication  # Added for PDF attachment
+import time
+from typing import Dict, List, Tuple
+from collections import defaultdict
 from .utils.validators import EmailValidator, DataValidator
 from .utils.company_matcher import CompanyMatcher
 from .templates import EmailTemplateManager
@@ -177,9 +186,8 @@ class EmailAutomation:
                 'batch': email['batch_num'],
                 'time': email['send_time'].strftime('%H:%M:%S')
             })
-        return schedule_summary              
-    def _send_email(self, recipient_email: str, recipient_name: str, 
-                    company: str, is_reminder: bool, batch_num: int):
+        return schedule_summary    
+    def _send_email(self, recipient_email: str, recipient_name: str, company: str, is_reminder: bool, batch_num: int):
         """Send individual email"""
         if recipient_email in self.sent_emails:
             logger.warning(f"Email already sent to {recipient_email}")
@@ -204,46 +212,31 @@ class EmailAutomation:
                 name=recipient_name
             )
             msg.attach(MIMEText(body, 'plain'))
+
+            # Attach resume
+            resume_path = 'data/resume.pdf'  # Make sure your resume is in this location
+            with open(resume_path, 'rb') as f:
+                resume = MIMEApplication(f.read(), _subtype='pdf')
+                resume.add_header('Content-Disposition', 'attachment', 
+                                filename='Sai_Harsha_Mummaneni_Resume.pdf')
+                msg.attach(resume)
             
-            # Enhanced SMTP connection handling
-            server = None
-            try:
-                logger.info(f"Initializing SMTP connection for {recipient_email}")
-                server = smtplib.SMTP(EMAIL_PROVIDERS['gmail']['smtp_server'], 
-                                    EMAIL_PROVIDERS['gmail']['smtp_port'])
-                
-                logger.info("Starting TLS")
+            # Send email
+            with smtplib.SMTP(EMAIL_PROVIDERS['gmail']['smtp_server'], 
+                            EMAIL_PROVIDERS['gmail']['smtp_port']) as server:
                 server.starttls()
-                
-                logger.info("Attempting login")
                 server.login(self.sender_email, self.sender_password)
-                
-                logger.info("Sending email")
                 server.send_message(msg)
                 
-                logger.info(f"[Batch {batch_num}] Successfully sent {template_type} email to: {recipient_name} ({recipient_email})")
-                
-                self.sent_emails.add(recipient_email)
-                self.daily_count += 1
-                self.last_send_time = datetime.now()
-                
-            except smtplib.SMTPAuthenticationError as e:
-                logger.error(f"Authentication failed: {str(e)}")
-                raise
-            except smtplib.SMTPException as e:
-                logger.error(f"SMTP error occurred: {str(e)}")
-                raise
-            except Exception as e:
-                logger.error(f"Unexpected error: {str(e)}")
-                raise
-            finally:
-                if server:
-                    logger.info("Closing SMTP connection")
-                    server.quit()
-                    
+            logger.info(f"[Batch {batch_num}] Successfully sent {template_type} email to: {recipient_name} ({recipient_email})")
+            
+            self.sent_emails.add(recipient_email)
+            self.daily_count += 1
+            self.last_send_time = datetime.now()
+            
         except Exception as e:
             logger.error(f"Error sending email to {recipient_email}: {e}")
-            raise
+            raise          
     def test_smtp_connection(self):
         """Test SMTP connection before running automation"""
         try:
@@ -281,3 +274,31 @@ class EmailAutomation:
             logger.error(f"Unexpected error during SMTP test: {str(e)}")
             logger.error(f"Using email: {self.sender_email}")
             return False
+    def verify_schedule(self):
+        """Verify and display all scheduled emails"""
+        if not hasattr(self, 'scheduled_emails') or not self.scheduled_emails:
+            print("\nNo emails currently scheduled")
+            return
+            
+        print("\n=== SCHEDULED EMAILS ===")
+        
+        # Group by date
+        from collections import defaultdict
+        schedule_by_date = defaultdict(list)
+        for email in self.scheduled_emails:
+            date = email['send_time'].strftime('%Y-%m-%d')
+            schedule_by_date[date].append(email)
+        
+        # Print schedule
+        for date, emails in sorted(schedule_by_date.items()):
+            print(f"\nDate: {date}")
+            for email in sorted(emails, key=lambda x: x['send_time']):
+                print(f"""
+        Batch {email['batch_num']}:
+        - Recipient: {email['recipient_name']} ({email['recipient_email']})
+        - Type: {'Reminder' if email['is_reminder'] else 'Initial'} email
+        - Company: {email['company'].title()}
+        - Scheduled Time: {email['send_time'].strftime('%H:%M:%S')}
+        """)
+        
+        print(f"\nTotal scheduled emails: {len(self.scheduled_emails)}")
